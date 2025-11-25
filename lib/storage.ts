@@ -7,12 +7,31 @@ import crypto from 'crypto';
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'public', 'uploads');
 
 export async function ensureUploadDir(): Promise<void> {
+  // In production (Vercel), skip directory creation as filesystem is read-only
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    return;
+  }
+
   if (!existsSync(UPLOAD_DIR)) {
     await mkdir(UPLOAD_DIR, { recursive: true });
   }
 }
 
 export async function saveFile(file: Buffer, filename: string): Promise<string> {
+  // In production, use temporary storage or return a placeholder
+  // Files should be processed from memory or use cloud storage
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    // For Vercel, we'll use /tmp directory which is writable
+    const tmpDir = '/tmp/uploads';
+    if (!existsSync(tmpDir)) {
+      await mkdir(tmpDir, { recursive: true });
+    }
+    const filepath = join(tmpDir, filename);
+    await writeFile(filepath, file);
+    return filepath;
+  }
+
+  // Development: use local public/uploads
   await ensureUploadDir();
   const filepath = join(UPLOAD_DIR, filename);
   await writeFile(filepath, file);

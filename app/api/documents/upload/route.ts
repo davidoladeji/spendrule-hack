@@ -24,8 +24,10 @@ async function processDocumentPipeline(documentId: string, userId: string, filen
     }
 
     const { join } = await import('path');
-    // Files are saved to public/uploads, so the path is relative to public
-    const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'public', 'uploads');
+    // In production (Vercel), use /tmp directory. In dev, use public/uploads
+    const UPLOAD_DIR = (process.env.NODE_ENV === 'production' || process.env.VERCEL)
+      ? '/tmp/uploads'
+      : process.env.UPLOAD_DIR || join(process.cwd(), 'public', 'uploads');
     const filepath = join(UPLOAD_DIR, filename);
     
     let ocrResult;
