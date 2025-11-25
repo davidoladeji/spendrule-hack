@@ -1,0 +1,662 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Authentication & Authorization Tables
+// ============================================
+
+model Organization {
+  organizationId String   @id @default(uuid()) @map("organization_id")
+  name           String
+  type           String?  // Customer, Vendor, GPO, etc.
+  settings       Json?    @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  users User[]
+
+  @@map("organizations")
+}
+
+model User {
+  userId       String   @id @default(uuid()) @map("user_id")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String?  @map("first_name")
+  lastName     String?  @map("last_name")
+  organizationId String @map("organization_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  lastLogin    DateTime? @map("last_login")
+  mfaEnabled   Boolean  @default(false) @map("mfa_enabled")
+  mfaSecret    String?  @map("mfa_secret")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [organizationId])
+  userRoles    UserRole[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+  @@index([email])
+  @@index([organizationId])
+}
+
+model Role {
+  roleId        String   @id @default(uuid()) @map("role_id")
+  roleName      String   @unique @map("role_name")
+  roleDescription String? @map("role_description")
+  isSystemRole  Boolean  @default(false) @map("is_system_role")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  userRoles     UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  permissionId   String   @id @default(uuid()) @map("permission_id")
+  permissionName String   @unique @map("permission_name")
+  resource       String
+  action         String
+  description    String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+  @@index([resource, action])
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [roleId], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [roleId], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [permissionId], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  tokenId   String   @id @default(uuid()) @map("token_id")
+  userId    String   @map("user_id")
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================
+// Core Business Tables (contractsphere_v3)
+// ============================================
+
+model Party {
+  partyId              String   @id @default(uuid()) @map("party_id")
+  partyType            String   @map("party_type") // Vendor, Customer, GPO, etc.
+  legalName            String   @map("legal_name")
+  tradingName          String?  @map("trading_name")
+  partyNumber          String?  @unique @map("party_number")
+  taxId                String?  @map("tax_id")
+  dunsNumber           String?  @map("duns_number")
+  npiNumber            String?  @map("npi_number")
+  cageCode             String?  @map("cage_code")
+  alternateNames       Json?    @default("[]") @map("alternate_names")
+  paymentTermsConfig   Json?    @map("payment_terms_config")
+  externalIds          Json?    @map("external_ids")
+  primaryContactEmail  String?  @map("primary_contact_email")
+  primaryContactPhone  String?  @map("primary_contact_phone")
+  partyStatus          String   @map("party_status")
+  createdDate          DateTime @default(now()) @map("created_date")
+  createdBy            String   @map("created_by")
+  updatedDate          DateTime? @map("updated_date")
+  updatedBy            String?  @map("updated_by")
+
+  contractParties      ContractParty[]
+  invoicesAsVendor     Invoice[]       @relation("VendorInvoices")
+  invoicesAsCustomer   Invoice[]       @relation("CustomerInvoices")
+  coDevPartnership     CoDevPartnership?
+
+  @@map("parties")
+  @@index([partyType])
+  @@index([partyStatus])
+}
+
+model Location {
+  locationId     String   @id @default(uuid()) @map("location_id")
+  locationCode   String   @unique @map("location_code")
+  locationName   String   @map("location_name")
+  locationType   String?  @map("location_type")
+  address        String?
+  city           String?
+  stateProvince  String?  @map("state_province")
+  postalCode     String?  @map("postal_code")
+  countryCode    String?  @map("country_code")
+  facilityType   String?  @map("facility_type")
+  bedCount       Int?     @map("bed_count")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdDate    DateTime @default(now()) @map("created_date")
+
+  contractLocations ContractLocation[]
+
+  @@map("locations")
+}
+
+model Contract {
+  contractId           String   @id @default(uuid()) @map("contract_id")
+  parentContractId     String?  @map("parent_contract_id")
+  relationshipType      String?  @map("relationship_type")
+  hierarchyLevel        Int?     @map("hierarchy_level")
+  contractNumber       String   @unique @map("contract_number")
+  contractTitle         String   @map("contract_title")
+  contractType          String   @map("contract_type")
+  effectiveDate        DateTime @map("effective_date") @db.Date
+  expirationDate        DateTime @map("expiration_date") @db.Date
+  autoRenewalEnabled    Boolean? @map("auto_renewal_enabled")
+  renewalPeriod         String?  @map("renewal_period")
+  noticePeriodDays     Int?     @map("notice_period_days")
+  totalContractValue    Decimal? @map("total_contract_value") @db.Decimal(15, 2)
+  annualValue           Decimal? @map("annual_value") @db.Decimal(15, 2)
+  currency              String   @db.VarChar(3)
+  validationConfig      Json?    @map("validation_config")
+  externalIds           Json?    @map("external_ids")
+  legalTerms            Json?    @map("legal_terms")
+  serviceRequirements   Json?    @map("service_requirements")
+  amendmentsJson        Json?    @map("amendments_json")
+  contractStatus        String   @map("contract_status")
+  version               String?
+  createdDate           DateTime @default(now()) @map("created_date")
+  createdBy             String   @map("created_by")
+  updatedDate           DateTime? @map("updated_date")
+  updatedBy             String?  @map("updated_by")
+
+  parentContract        Contract?  @relation("ContractHierarchy", fields: [parentContractId], references: [contractId])
+  childContracts        Contract[]  @relation("ContractHierarchy")
+  billableItems         BillableItem[]
+  contractParties       ContractParty[]
+  contractLocations     ContractLocation[]
+  invoices              Invoice[]
+  documentExtractions   DocumentExtractionData[]
+
+  @@map("contracts")
+  @@index([parentContractId])
+  @@index([contractStatus])
+  @@index([effectiveDate, expirationDate])
+}
+
+model BillableItem {
+  itemId                String   @id @default(uuid()) @map("item_id")
+  contractId            String   @map("contract_id")
+  pricingModelId        String?  @map("pricing_model_id")
+  itemName              String   @map("item_name")
+  itemDescription       String?  @map("item_description")
+  itemCategory          String?  @map("item_category")
+  serviceCategoryId     Int?     @map("service_category_id")
+  listPrice             Decimal  @map("list_price") @db.Decimal(15, 4)
+  contractPrice         Decimal? @map("contract_price") @db.Decimal(15, 4)
+  priceFloor            Decimal? @map("price_floor") @db.Decimal(15, 4)
+  priceCeiling          Decimal? @map("price_ceiling") @db.Decimal(15, 4)
+  allowedVarianceType   String?  @map("allowed_variance_type")
+  allowedVarianceValue  Decimal? @map("allowed_variance_value") @db.Decimal(10, 4)
+  primaryUom            String   @map("primary_uom")
+  allowedUoms           Json?    @map("allowed_uoms")
+  uomConversionRules    Json?    @map("uom_conversion_rules")
+  currency              String   @db.VarChar(3)
+  billingFrequency      String?  @map("billing_frequency")
+  rateType              String?  @map("rate_type")
+  sku                   String?  @db.VarChar(100)
+  catalogNumber         String?  @map("catalog_number")
+  glAccount             String?  @map("gl_account")
+  externalIds           Json?    @map("external_ids")
+  pricingDetails        Json?    @map("pricing_details")
+  createdDate           DateTime @default(now()) @map("created_date")
+
+  contract              Contract        @relation(fields: [contractId], references: [contractId])
+  pricingModel          PricingModel?    @relation(fields: [pricingModelId], references: [modelId])
+  serviceCategory       ServiceCategory? @relation(fields: [serviceCategoryId], references: [categoryId])
+  invoiceLineItems      InvoiceLineItem[]
+  lineItemMatches       LineItemMatch[]
+
+  @@map("billable_items")
+  @@index([contractId])
+  @@index([serviceCategoryId])
+}
+
+model PricingModel {
+  modelId               String   @id @default(uuid()) @map("model_id")
+  modelName             String   @map("model_name")
+  modelType             String   @map("model_type")
+  version               String
+  calculationMethod     String?  @map("calculation_method")
+  calculationFormula    Json?    @map("calculation_formula")
+  baseRate              Decimal? @map("base_rate") @db.Decimal(15, 4)
+  currency              String   @db.VarChar(3)
+  prorationMethod       String?  @map("proration_method")
+  partialMonthCalculation String? @map("partial_month_calculation")
+  isActive              Boolean  @default(true) @map("is_active")
+  createdDate           DateTime @default(now()) @map("created_date")
+
+  pricingTiers          PricingTier[]
+  billableItems         BillableItem[]
+
+  @@map("pricing_models")
+}
+
+model PricingTier {
+  tierId                String   @id @default(uuid()) @map("tier_id")
+  modelId               String   @map("model_id")
+  tierSequence          Int      @map("tier_sequence")
+  tierName              String?  @map("tier_name")
+  minValue              Decimal  @map("min_value") @db.Decimal(15, 4)
+  maxValue              Decimal? @map("max_value") @db.Decimal(15, 4)
+  rate                  Decimal  @db.Decimal(15, 4)
+  rateType              String?  @map("rate_type")
+  isCumulative          Boolean? @map("is_cumulative")
+  appliesToOverageOnly  Boolean? @map("applies_to_overage_only")
+
+  pricingModel          PricingModel @relation(fields: [modelId], references: [modelId])
+
+  @@map("pricing_tiers")
+  @@index([modelId])
+}
+
+model Invoice {
+  invoiceId             String   @id @default(uuid()) @map("invoice_id")
+  invoiceNumber         String?  @map("invoice_number")
+  vendorPartyId         String   @map("vendor_party_id")
+  customerPartyId      String   @map("customer_party_id")
+  contractId            String?  @map("contract_id")
+  sourceDocumentId      String?  @map("source_document_id")
+  poNumber              String?  @map("po_number")
+  externalVoucherId     String?  @map("external_voucher_id")
+  apUnit                String?  @map("ap_unit")
+  invoiceDate           DateTime @map("invoice_date") @db.Date
+  paymentDate           DateTime? @map("payment_date") @db.Date
+  servicePeriodStart    DateTime? @map("service_period_start") @db.Date
+  servicePeriodEnd      DateTime? @map("service_period_end") @db.Date
+  netServiceAmount      Decimal  @map("net_service_amount") @db.Decimal(15, 2)
+  taxAmount             Decimal? @map("tax_amount") @db.Decimal(15, 2)
+  shippingHandling      Decimal? @map("shipping_handling") @db.Decimal(15, 2)
+  fuelSurcharge         Decimal? @map("fuel_surcharge") @db.Decimal(15, 2)
+  miscellaneousCharges  Decimal? @map("miscellaneous_charges") @db.Decimal(15, 2)
+  grossAmount           Decimal  @map("gross_amount") @db.Decimal(15, 2)
+  currency              String   @db.VarChar(3)
+  billingAggregationLevel String? @map("billing_aggregation_level")
+  currentStatus         String   @map("current_status")
+  validationStatus      String?  @map("validation_status")
+  autoApprovalEligible  Boolean? @map("auto_approval_eligible")
+  externalIds           Json?    @map("external_ids")
+  createdDate           DateTime @default(now()) @map("created_date")
+  createdBy             String   @map("created_by")
+  updatedDate           DateTime? @map("updated_date")
+  updatedBy             String?  @map("updated_by")
+
+  vendorParty           Party                @relation("VendorInvoices", fields: [vendorPartyId], references: [partyId])
+  customerParty         Party                @relation("CustomerInvoices", fields: [customerPartyId], references: [partyId])
+  contract               Contract?           @relation(fields: [contractId], references: [contractId])
+  sourceDocument         DocumentMetadata?    @relation(fields: [sourceDocumentId], references: [documentId])
+  invoiceLineItems       InvoiceLineItem[]
+  invoiceValidations     InvoiceValidation[]
+  invoiceApprovalRequests InvoiceApprovalRequest[]
+  documentExtractions    DocumentExtractionData[]
+
+  @@map("invoices")
+  @@index([vendorPartyId])
+  @@index([contractId])
+  @@index([currentStatus])
+}
+
+model InvoiceLineItem {
+  lineItemId            String   @id @default(uuid()) @map("line_item_id")
+  invoiceId             String   @map("invoice_id")
+  lineNumber            Int      @map("line_number")
+  billableItemId        String?  @map("billable_item_id")
+  extractionId          String?  @map("extraction_id")
+  description           String
+  invoiceQuantity       Decimal? @map("invoice_quantity") @db.Decimal(15, 4)
+  invoiceUom            String?  @map("invoice_uom")
+  invoiceUnitPrice      Decimal? @map("invoice_unit_price") @db.Decimal(15, 4)
+  extendedAmount        Decimal  @map("extended_amount") @db.Decimal(15, 2)
+  servicePeriodStart    DateTime? @map("service_period_start") @db.Date
+  servicePeriodEnd      DateTime? @map("service_period_end") @db.Date
+  contractUom            String?  @map("contract_uom")
+  uomConversionFactor   Decimal? @map("uom_conversion_factor") @db.Decimal(10, 4)
+  normalizedQuantity    Decimal? @map("normalized_quantity") @db.Decimal(15, 4)
+  normalizedUnitPrice   Decimal? @map("normalized_unit_price") @db.Decimal(15, 4)
+  expectedUnitPrice     Decimal? @map("expected_unit_price") @db.Decimal(15, 4)
+  priceVariance         Decimal? @map("price_variance") @db.Decimal(15, 2)
+  quantityVariance      Decimal? @map("quantity_variance") @db.Decimal(15, 4)
+  withinTolerance       Boolean? @map("within_tolerance")
+  serviceCategoryId     Int?     @map("service_category_id")
+  glAccount             String?  @map("gl_account")
+  department            String?
+  project               String?
+  costCenter            String?  @map("cost_center")
+  sourceLineText        String?  @map("source_line_text")
+  validationStatus      String?  @map("validation_status")
+  aggregationDetails    Json?    @map("aggregation_details")
+  externalIds           Json?    @map("external_ids")
+  createdDate           DateTime @default(now()) @map("created_date")
+
+  invoice               Invoice              @relation(fields: [invoiceId], references: [invoiceId])
+  billableItem          BillableItem?        @relation(fields: [billableItemId], references: [itemId])
+  extraction            DocumentExtractionData? @relation(fields: [extractionId], references: [extractionId])
+  serviceCategory       ServiceCategory?     @relation(fields: [serviceCategoryId], references: [categoryId])
+  lineItemMatches       LineItemMatch[]
+
+  @@map("invoice_line_items")
+  @@index([invoiceId])
+  @@index([billableItemId])
+}
+
+model DocumentMetadata {
+  documentId            String   @id @default(uuid()) @map("document_id")
+  documentType          String   @map("document_type") // 'contract' or 'invoice'
+  documentName          String   @map("document_name")
+  documentUrl           String?  @map("document_url")
+  fileHash              String?  @map("file_hash")
+  totalPages            Int?     @map("total_pages")
+  fileSizeBytes         BigInt?  @map("file_size_bytes")
+  mimeType              String?  @map("mime_type")
+  ocrCompleted          Boolean  @default(false) @map("ocr_completed")
+  extractionCompleted   Boolean  @default(false) @map("extraction_completed")
+  validationCompleted   Boolean  @default(false) @map("validation_completed")
+  processingStatus      String?  @map("processing_status") // 'uploaded' | 'ocr' | 'extraction' | 'normalization' | 'completed' | 'error'
+  processingError       String?  @map("processing_error")
+  uploadedDate          DateTime @default(now()) @map("uploaded_date")
+  uploadedBy            String   @map("uploaded_by")
+
+  invoices              Invoice[]
+  documentExtractions   DocumentExtractionData[]
+
+  @@map("document_metadata")
+  @@index([documentType])
+  @@index([fileHash])
+}
+
+model DocumentExtractionData {
+  extractionId          String   @id @default(uuid()) @map("extraction_id")
+  documentId            String   @map("document_id")
+  invoiceId             String?  @map("invoice_id")
+  contractId            String?  @map("contract_id")
+  entityType             String   @map("entity_type")
+  fieldName             String   @map("field_name")
+  extractedValue        String?  @map("extracted_value")
+  normalizedValue       String?  @map("normalized_value")
+  confidenceScore       Decimal? @map("confidence_score") @db.Decimal(5, 4)
+  extractionMethod      String?  @map("extraction_method")
+  overallConfidence     Decimal? @map("overall_confidence") @db.Decimal(5, 4)
+  processingTimeMs      Int?     @map("processing_time_ms")
+  requiresHumanReview   Boolean? @map("requires_human_review")
+  sourcePageNumber      Int?     @map("source_page_number")
+  sourceSection         String?  @map("source_section")
+  boundingBoxCoordinates Json?   @map("bounding_box_coordinates")
+  textSnippet           String?  @map("text_snippet")
+  isValidated           Boolean? @map("is_validated")
+  validationNotes       String?  @map("validation_notes")
+  extractedDate         DateTime @default(now()) @map("extracted_date")
+  extractionEngineVersion String? @map("extraction_engine_version")
+
+  document              DocumentMetadata @relation(fields: [documentId], references: [documentId])
+  invoice               Invoice?         @relation(fields: [invoiceId], references: [invoiceId])
+  contract               Contract?        @relation(fields: [contractId], references: [contractId])
+  invoiceLineItems      InvoiceLineItem[]
+  contractExceptions    ValidationException[] @relation("ContractExtractions")
+  invoiceExceptions     ValidationException[] @relation("InvoiceExtractions")
+
+  @@map("document_extraction_data")
+  @@index([documentId])
+  @@index([invoiceId])
+  @@index([contractId])
+}
+
+model InvoiceValidation {
+  validationId          String   @id @default(uuid()) @map("validation_id")
+  invoiceId             String   @map("invoice_id")
+  requestId             String?  @map("request_id")
+  validationDate        DateTime @default(now()) @map("validation_date")
+  validationEngineVersion String? @map("validation_engine_version")
+  validationConfigUsed  Json?    @map("validation_config_used")
+  overallStatus         String   @map("overall_status")
+  confidenceScore       Decimal? @map("confidence_score") @db.Decimal(5, 2)
+  contractMatched       Boolean? @map("contract_matched")
+  vendorValidated       Boolean? @map("vendor_validated")
+  dateRangeValid        Boolean? @map("date_range_valid")
+  currencyMatch         Boolean? @map("currency_match")
+  expectedNetAmount     Decimal? @map("expected_net_amount") @db.Decimal(15, 2)
+  actualNetAmount       Decimal  @map("actual_net_amount") @db.Decimal(15, 2)
+  varianceAmount        Decimal? @map("variance_amount") @db.Decimal(15, 2)
+  potentialSavings      Decimal? @map("potential_savings") @db.Decimal(15, 2)
+  recommendedPaymentAmount Decimal? @map("recommended_payment_amount") @db.Decimal(15, 2)
+  processingTimeMs      Int?     @map("processing_time_ms")
+  validationMethod      String?  @map("validation_method")
+  rulesAppliedCount     Int?     @map("rules_applied_count")
+  autoApproved          Boolean? @map("auto_approved")
+  approvalNotes         String?  @map("approval_notes")
+  validatedBy           String?  @map("validated_by")
+  reviewedBy            String?  @map("reviewed_by")
+  reviewDate            DateTime? @map("review_date")
+  intelligenceSummary   Json?    @map("intelligence_summary")
+
+  invoice               Invoice              @relation(fields: [invoiceId], references: [invoiceId])
+  validationExceptions  ValidationException[]
+  invoiceApprovalRequests InvoiceApprovalRequest[]
+
+  @@map("invoice_validations")
+  @@index([invoiceId])
+}
+
+model ValidationException {
+  exceptionId           String   @id @default(uuid()) @map("exception_id")
+  validationId          String   @map("validation_id")
+  lineNumber            Int?     @map("line_number")
+  fieldName             String?   @map("field_name")
+  exceptionType         String   @map("exception_type")
+  exceptionCategory     String?  @map("exception_category")
+  severity              String   // High, Medium, Low
+  expectedValue         String?  @map("expected_value")
+  actualValue           String?  @map("actual_value")
+  varianceAmount        Decimal? @map("variance_amount") @db.Decimal(15, 2)
+  rootCause             String?  @map("root_cause")
+  contractExtractionId  String?  @map("contract_extraction_id")
+  invoiceExtractionId   String?  @map("invoice_extraction_id")
+  message               String
+  recommendation        String?  @map("recommendation")
+  resolved              Boolean  @default(false)
+  resolutionNotes       String?  @map("resolution_notes")
+  resolvedBy            String?  @map("resolved_by")
+  resolvedDate          DateTime? @map("resolved_date")
+
+  validation            InvoiceValidation        @relation(fields: [validationId], references: [validationId])
+  contractExtraction    DocumentExtractionData?  @relation("ContractExtractions", fields: [contractExtractionId], references: [extractionId])
+  invoiceExtraction     DocumentExtractionData?  @relation("InvoiceExtractions", fields: [invoiceExtractionId], references: [extractionId])
+
+  @@map("validation_exceptions")
+  @@index([validationId])
+}
+
+model LineItemMatch {
+  matchId               String   @id @default(uuid()) @map("match_id")
+  lineItemId            String   @map("line_item_id")
+  billableItemId        String   @map("billable_item_id")
+  matchConfidence       Decimal  @map("match_confidence") @db.Decimal(5, 2)
+  matchMethod           String?  @map("match_method")
+  matchScoreBreakdown   Json?    @map("match_score_breakdown")
+  priceValid            Boolean? @map("price_valid")
+  quantityValid         Boolean? @map("quantity_valid")
+  uomValid              Boolean? @map("uom_valid")
+  withinTolerance       Boolean? @map("within_tolerance")
+  matchedDate           DateTime @default(now()) @map("matched_date")
+  matchedBy             String?  @map("matched_by")
+
+  lineItem              InvoiceLineItem @relation(fields: [lineItemId], references: [lineItemId])
+  billableItem          BillableItem    @relation(fields: [billableItemId], references: [itemId])
+
+  @@map("line_item_matches")
+  @@index([lineItemId])
+  @@index([billableItemId])
+}
+
+model ContractParty {
+  contractId            String   @map("contract_id")
+  partyId               String   @map("party_id")
+  partyRole             String   @map("party_role") // Vendor, Customer, Distributor, GPO, etc.
+  isPrimary             Boolean? @map("is_primary")
+  specificPaymentTerms  Json?    @map("specific_payment_terms")
+
+  contract              Contract @relation(fields: [contractId], references: [contractId], onDelete: Cascade)
+  party                 Party    @relation(fields: [partyId], references: [partyId], onDelete: Cascade)
+
+  @@id([contractId, partyId, partyRole])
+  @@map("contract_parties")
+}
+
+model ContractLocation {
+  contractId            String   @map("contract_id")
+  locationId            String   @map("location_id")
+  isPrimary             Boolean? @map("is_primary")
+  locationSpecificPricing Json?  @map("location_specific_pricing")
+  serviceLevelRequirements Json? @map("service_level_requirements")
+
+  contract              Contract @relation(fields: [contractId], references: [contractId], onDelete: Cascade)
+  location              Location @relation(fields: [locationId], references: [locationId], onDelete: Cascade)
+
+  @@id([contractId, locationId])
+  @@map("contract_locations")
+}
+
+model ApprovalLevel {
+  levelId               Int      @id @default(autoincrement()) @map("level_id")
+  levelName             String   @map("level_name")
+  approvalSequence     Int      @unique @map("approval_sequence")
+  minAmount             Decimal? @map("min_amount") @db.Decimal(15, 2)
+  maxAmount             Decimal? @map("max_amount") @db.Decimal(15, 2)
+  requiresRole          String?  @map("requires_role")
+  escalationDays       Int      @default(3) @map("escalation_days")
+  isActive              Boolean  @default(true) @map("is_active")
+
+  invoiceApprovalRequests InvoiceApprovalRequest[]
+
+  @@map("approval_levels")
+}
+
+model InvoiceApprovalRequest {
+  approvalId            String   @id @default(uuid()) @map("approval_id")
+  invoiceId             String   @map("invoice_id")
+  validationId          String?  @map("validation_id")
+  currentLevel          Int      @map("current_level")
+  currentStatus         String   @default("Pending") @map("current_status")
+  requiredByDate        DateTime? @map("required_by_date")
+  assignedToUser        String?  @map("assigned_to_user")
+  assignedToRole        String?  @map("assigned_to_role")
+  assignedDate          DateTime @default(now()) @map("assigned_date")
+  decision              String?  // Approve, Reject, Dispute, Escalate
+  decidedBy             String?  @map("decided_by")
+  decidedDate           DateTime? @map("decided_date")
+  approvedAmount        Decimal? @map("approved_amount") @db.Decimal(15, 2)
+  rejectionReason       String?  @map("rejection_reason")
+  comments              String?
+  isFinalApproval       Boolean  @default(false) @map("is_final_approval")
+  escalationCount       Int      @default(0) @map("escalation_count")
+  createdDate           DateTime @default(now()) @map("created_date")
+  createdBy             String   @map("created_by")
+
+  invoice               Invoice          @relation(fields: [invoiceId], references: [invoiceId], onDelete: Cascade)
+  validation            InvoiceValidation? @relation(fields: [validationId], references: [validationId])
+  approvalLevel         ApprovalLevel    @relation(fields: [currentLevel], references: [levelId])
+  approvalHistory       InvoiceApprovalHistory[]
+
+  @@map("invoice_approval_requests")
+  @@index([invoiceId])
+}
+
+model InvoiceApprovalHistory {
+  historyId             String   @id @default(uuid()) @map("history_id")
+  approvalId            String   @map("approval_id")
+  statusFrom            String?  @map("status_from")
+  statusTo              String   @map("status_to")
+  changedBy             String   @map("changed_by")
+  changedDate           DateTime @default(now()) @map("changed_date")
+  comment               String?
+  amountChange          Decimal? @map("amount_change") @db.Decimal(15, 2)
+
+  approvalRequest       InvoiceApprovalRequest @relation(fields: [approvalId], references: [approvalId], onDelete: Cascade)
+
+  @@map("invoice_approval_history")
+  @@index([approvalId])
+}
+
+model ServiceCategory {
+  categoryId            Int      @id @default(autoincrement()) @map("category_id")
+  parentId              Int?     @map("parent_id")
+  categoryName          String   @map("category_name")
+  subcategoryName       String?  @map("subcategory_name")
+  fullPath              String?  @map("full_path")
+  isActive              Boolean  @default(true) @map("is_active")
+
+  parent                ServiceCategory? @relation("CategoryHierarchy", fields: [parentId], references: [categoryId])
+  children              ServiceCategory[] @relation("CategoryHierarchy")
+  billableItems         BillableItem[]
+  invoiceLineItems      InvoiceLineItem[]
+
+  @@map("service_categories")
+  @@index([parentId])
+}
+
+model CoDevPartnership {
+  partnerId             String   @id @map("partner_id")
+  cohort                String   // Cohort1, Cohort2
+  inScopeSpendTotal     Decimal  @map("in_scope_spend_total") @db.Decimal(15, 2)
+  goLiveTarget          DateTime @map("go_live_target") @db.Date
+  equityAllocationPct   Decimal  @map("equity_allocation_pct") @db.Decimal(5, 3)
+  milestonesCompleted   Int      @default(0) @map("milestones_completed")
+  extraDiscountEligible Boolean  @default(false) @map("extra_discount_eligible")
+  createdDate           DateTime @default(now()) @map("created_date")
+
+  party                 Party    @relation(fields: [partnerId], references: [partyId])
+
+  @@map("co_dev_partnerships")
+}
+
+model AuditLog {
+  auditId               String   @id @default(uuid()) @map("audit_id")
+  tableName             String   @map("table_name")
+  recordId              String   @map("record_id")
+  action                String   // CREATE, UPDATE, DELETE
+  changedFields         Json?    @map("changed_fields")
+  oldValues             Json?    @map("old_values")
+  newValues             Json?    @map("new_values")
+  changedBy             String   @map("changed_by")
+  changedDate           DateTime @default(now()) @map("changed_date")
+  changeReason          String?  @map("change_reason")
+
+  @@map("audit_log")
+  @@index([tableName, recordId])
+  @@index([changedBy])
+  @@index([changedDate])
+}
+
