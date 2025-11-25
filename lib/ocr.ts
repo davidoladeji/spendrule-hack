@@ -26,14 +26,19 @@ export async function extractTextFromPDF(filepath: string): Promise<OCRResult> {
     const dataBuffer = readFileSync(filepath);
 
     // Use pdfjs-dist for serverless environments (Vercel)
-    // It works without native dependencies
+    // Disable all rendering-related features to avoid canvas dependencies
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
-    // Load the PDF document
+    // Disable worker and canvas-related features
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+
+    // Load the PDF document with minimal options
     const loadingTask = pdfjsLib.getDocument({
       data: new Uint8Array(dataBuffer),
-      useSystemFonts: true,
-      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.269/standard_fonts/',
+      useSystemFonts: false,
+      disableFontFace: true,
+      enableXfa: false,
+      isEvalSupported: false,
     });
 
     const pdf = await loadingTask.promise;
@@ -44,11 +49,18 @@ export async function extractTextFromPDF(filepath: string): Promise<OCRResult> {
     // Extract text from each page
     for (let i = 1; i <= numPages; i++) {
       const page = await pdf.getPage(i);
+
+      // Get text content without rendering
       const textContent = await page.getTextContent();
 
       // Combine text items into a single string
       const pageText = textContent.items
-        .map((item: any) => item.str)
+        .map((item: any) => {
+          // Handle both string items and objects with str property
+          if (typeof item === 'string') return item;
+          return item.str || '';
+        })
+        .filter(Boolean)
         .join(' ');
 
       pages.push({
@@ -58,6 +70,10 @@ export async function extractTextFromPDF(filepath: string): Promise<OCRResult> {
 
       fullText += pageText + '\n\n';
     }
+
+    // Clean up
+    await pdf.cleanup();
+    await pdf.destroy();
 
     return {
       text: fullText.trim(),
