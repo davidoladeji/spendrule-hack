@@ -36,9 +36,7 @@ export async function GET(request: NextRequest) {
     const partyType = searchParams.get('partyType');
     const search = searchParams.get('search');
 
-    const where: any = {
-      organizationId: user.organizationId, // Row-level security
-    };
+    const where: any = {};
 
     if (partyType) {
       where.partyType = partyType;
