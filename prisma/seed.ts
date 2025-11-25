@@ -171,21 +171,14 @@ async function main() {
 
   // Assign all permissions to Super Admin role
   const allPermissions = await prisma.permission.findMany();
-  for (const perm of allPermissions) {
-    await prisma.rolePermission.upsert({
-      where: {
-        roleId_permissionId: {
-          roleId: superAdminRole.roleId,
-          permissionId: perm.permissionId,
-        },
-      },
-      update: {},
-      create: {
-        roleId: superAdminRole.roleId,
-        permissionId: perm.permissionId,
-      },
-    });
-  }
+  const superAdminRolePermissions = allPermissions.map(perm => ({
+    roleId: superAdminRole.roleId,
+    permissionId: perm.permissionId,
+  }));
+  await prisma.rolePermission.createMany({
+    data: superAdminRolePermissions,
+    skipDuplicates: true,
+  });
 
   // Assign read permissions to Viewer role
   const viewerPermissions = [
@@ -201,26 +194,16 @@ async function main() {
     'validations:view',
     'reports:view',
   ];
-  for (const permName of viewerPermissions) {
-    const perm = await prisma.permission.findUnique({
-      where: { permissionName: permName },
-    });
-    if (perm) {
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: viewerRole.roleId,
-            permissionId: perm.permissionId,
-          },
-        },
-        update: {},
-        create: {
-          roleId: viewerRole.roleId,
-          permissionId: perm.permissionId,
-        },
-      });
-    }
-  }
+  const viewerPerms = await prisma.permission.findMany({
+    where: { permissionName: { in: viewerPermissions } },
+  });
+  await prisma.rolePermission.createMany({
+    data: viewerPerms.map(perm => ({
+      roleId: viewerRole.roleId,
+      permissionId: perm.permissionId,
+    })),
+    skipDuplicates: true,
+  });
 
   // Assign permissions to AP Clerk role (for regular users who need to process invoices)
   const apClerkPermissions = [
@@ -250,26 +233,16 @@ async function main() {
     'approvals:reject',
     'reports:view',
   ];
-  for (const permName of apClerkPermissions) {
-    const perm = await prisma.permission.findUnique({
-      where: { permissionName: permName },
-    });
-    if (perm) {
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: apClerkRole.roleId,
-            permissionId: perm.permissionId,
-          },
-        },
-        update: {},
-        create: {
-          roleId: apClerkRole.roleId,
-          permissionId: perm.permissionId,
-        },
-      });
-    }
-  }
+  const apClerkPerms = await prisma.permission.findMany({
+    where: { permissionName: { in: apClerkPermissions } },
+  });
+  await prisma.rolePermission.createMany({
+    data: apClerkPerms.map(perm => ({
+      roleId: apClerkRole.roleId,
+      permissionId: perm.permissionId,
+    })),
+    skipDuplicates: true,
+  });
 
   // Assign permissions to Department Head role
   const deptHeadPermissions = [
@@ -297,26 +270,16 @@ async function main() {
     'approvals:escalate',
     'reports:view',
   ];
-  for (const permName of deptHeadPermissions) {
-    const perm = await prisma.permission.findUnique({
-      where: { permissionName: permName },
-    });
-    if (perm) {
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: deptHeadRole.roleId,
-            permissionId: perm.permissionId,
-          },
-        },
-        update: {},
-        create: {
-          roleId: deptHeadRole.roleId,
-          permissionId: perm.permissionId,
-        },
-      });
-    }
-  }
+  const deptHeadPerms = await prisma.permission.findMany({
+    where: { permissionName: { in: deptHeadPermissions } },
+  });
+  await prisma.rolePermission.createMany({
+    data: deptHeadPerms.map(perm => ({
+      roleId: deptHeadRole.roleId,
+      permissionId: perm.permissionId,
+    })),
+    skipDuplicates: true,
+  });
 
   // Assign permissions to Finance Admin role
   const financeAdminPermissions = [
@@ -348,26 +311,16 @@ async function main() {
     'reports:view',
     'reports:export',
   ];
-  for (const permName of financeAdminPermissions) {
-    const perm = await prisma.permission.findUnique({
-      where: { permissionName: permName },
-    });
-    if (perm) {
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: financeAdminRole.roleId,
-            permissionId: perm.permissionId,
-          },
-        },
-        update: {},
-        create: {
-          roleId: financeAdminRole.roleId,
-          permissionId: perm.permissionId,
-        },
-      });
-    }
-  }
+  const financeAdminPerms = await prisma.permission.findMany({
+    where: { permissionName: { in: financeAdminPermissions } },
+  });
+  await prisma.rolePermission.createMany({
+    data: financeAdminPerms.map(perm => ({
+      roleId: financeAdminRole.roleId,
+      permissionId: perm.permissionId,
+    })),
+    skipDuplicates: true,
+  });
 
   // Create default admin user
   const defaultPassword = await bcrypt.hash('admin123', 12);
