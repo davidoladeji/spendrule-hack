@@ -22,93 +22,69 @@ export interface BoundingBox {
 }
 
 export async function extractTextFromPDF(filepath: string): Promise<OCRResult> {
-  try {
-    const dataBuffer = readFileSync(filepath);
+  return new Promise((resolve, reject) => {
+    try {
+      // Use pdf2json for serverless - pure Node.js, no canvas dependencies
+      const PDFParser = require('pdf2json');
+      const pdfParser = new PDFParser();
 
-    // Use pdfjs-dist for serverless environments (Vercel)
-    // Disable all rendering-related features to avoid canvas dependencies
-    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-
-    // Disable worker and canvas-related features
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-
-    // Load the PDF document with minimal options
-    const loadingTask = pdfjsLib.getDocument({
-      data: new Uint8Array(dataBuffer),
-      useSystemFonts: false,
-      disableFontFace: true,
-      enableXfa: false,
-      isEvalSupported: false,
-    });
-
-    const pdf = await loadingTask.promise;
-    const numPages = pdf.numPages;
-    const pages: PageOCRResult[] = [];
-    let fullText = '';
-
-    // Extract text from each page
-    for (let i = 1; i <= numPages; i++) {
-      const page = await pdf.getPage(i);
-
-      // Get text content without rendering
-      const textContent = await page.getTextContent();
-
-      // Combine text items into a single string
-      const pageText = textContent.items
-        .map((item: any) => {
-          // Handle both string items and objects with str property
-          if (typeof item === 'string') return item;
-          return item.str || '';
-        })
-        .filter(Boolean)
-        .join(' ');
-
-      pages.push({
-        pageNumber: i,
-        text: pageText,
+      pdfParser.on('pdfParser_dataError', (errData: any) => {
+        console.error('PDF parsing error:', errData.parserError);
+        reject(new Error('Failed to extract text from PDF'));
       });
 
-      fullText += pageText + '\n\n';
+      pdfParser.on('pdfParser_dataReady', (pdfData: any) => {
+        try {
+          const pages: PageOCRResult[] = [];
+          let fullText = '';
+
+          // Extract text from each page
+          if (pdfData.Pages && Array.isArray(pdfData.Pages)) {
+            pdfData.Pages.forEach((page: any, index: number) => {
+              let pageText = '';
+
+              // Extract text from all text elements on the page
+              if (page.Texts && Array.isArray(page.Texts)) {
+                page.Texts.forEach((textItem: any) => {
+                  if (textItem.R && Array.isArray(textItem.R)) {
+                    textItem.R.forEach((run: any) => {
+                      if (run.T) {
+                        // Decode URI component (pdf2json encodes text)
+                        const decodedText = decodeURIComponent(run.T);
+                        pageText += decodedText + ' ';
+                      }
+                    });
+                  }
+                });
+              }
+
+              pages.push({
+                pageNumber: index + 1,
+                text: pageText.trim(),
+              });
+
+              fullText += pageText.trim() + '\n\n';
+            });
+          }
+
+          resolve({
+            text: fullText.trim(),
+            pages,
+            totalPages: pdfData.Pages?.length || 0,
+          });
+        } catch (processingError) {
+          console.error('Error processing PDF data:', processingError);
+          reject(new Error('Failed to process PDF data'));
+        }
+      });
+
+      // Load and parse the PDF file
+      pdfParser.loadPDF(filepath);
+    } catch (error) {
+      console.error('PDF extraction error:', error);
+      reject(new Error('Failed to extract text from PDF'));
     }
-
-    // Clean up
-    await pdf.cleanup();
-    await pdf.destroy();
-
-    return {
-      text: fullText.trim(),
-      pages,
-      totalPages: numPages,
-    };
-  } catch (error) {
-    console.error('PDF extraction error:', error);
-
-    // Fallback to pdf-parse if pdfjs-dist fails (for development)
-    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-      try {
-        const pdfParse = require('pdf-parse');
-        const dataBuffer = readFileSync(filepath);
-        const result = await pdfParse(dataBuffer);
-
-        const textPerPage = result.text.split(/\f/);
-        const pages: PageOCRResult[] = textPerPage.map((text, index) => ({
-          pageNumber: index + 1,
-          text: text || '',
-        }));
-
-        return {
-          text: result.text,
-          pages,
-          totalPages: result.numpages || pages.length,
-        };
-      } catch (fallbackError) {
-        console.error('Fallback PDF extraction error:', fallbackError);
-        throw new Error('Failed to extract text from PDF');
-      }
-    }
-
-    throw new Error('Failed to extract text from PDF');
-  }
+  });
 }
 
 export async function extractTextWithCoordinates(filepath: string): Promise<OCRResult> {
